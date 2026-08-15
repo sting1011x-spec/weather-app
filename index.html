@@ -234,7 +234,7 @@
     document.getElementById("weather-container").innerHTML = html;
   }
 
-  // 地名検索（Geocoding API）
+// 地名検索（正規化対応版）
   async function searchLocation() {
     const query = document.getElementById("search-input").value;
     if (!query) return;
@@ -244,29 +244,53 @@
     document.getElementById("search-results-container").style.display = "block";
 
     try {
-      // 郵便番号や地名から緯度経度を取得
-      const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=5&language=ja&format=json`;
+      // addressdetails=1 を追加して住所の構成要素（県、市など）を個別に取得
+      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&addressdetails=1`;
       const res = await fetch(url);
       const data = await res.json();
 
-      if (!data.results || data.results.length === 0) {
+      if (!data || data.length === 0) {
         resultsContainer.innerHTML = "<div class='list-item'>見つかりませんでした。別の地名をお試しください。</div>";
         return;
       }
 
       let html = "";
-      data.results.forEach(item => {
-        // 県名と市町村名を繋げる（例: Ibaraki 日立市）
-        const admin = item.admin1 ? item.admin1 + " " : "";
-        const fullName = (admin + item.name).trim();
-        html += `<div class="list-item" onclick="selectLocation('${fullName}', ${item.latitude}, ${item.longitude})">${fullName}</div>`;
-      });
+      const limit = Math.min(data.length, 5);
+      for(let i = 0; i < limit; i++) {
+        const item = data[i];
+        const address = item.address || {};
+        
+        // 都道府県・市区町村・名称の抽出
+        const pref = address.province || address.state || "";
+        const city = address.city || address.town || address.village || address.borough || address.ward || address.county || "";
+        const name = item.name || ""; 
+
+        let shortName = "";
+        
+        // 地名に応じた正規化処理（県名＋市町村名、または県名＋施設・山名）
+        if (name && name !== pref && name !== city) {
+          shortName = pref ? `${pref} ${name}` : name;
+        } else {
+          shortName = (pref && city && pref !== city) ? `${pref}${city}` : (pref || city || name);
+        }
+
+        // カンマ区切りの詳細住所（「, 日本」を削除）
+        const fullAddress = item.display_name.replace(/,\s*日本$/, "");
+        
+        // 候補リストの表示を見やすく整理
+        html += `
+          <div class="list-item" onclick="selectLocation('${shortName}', ${item.lat}, ${item.lon})">
+            <div style="font-size: 15px;">${shortName}</div>
+            <div style="font-size: 11px; color: #888; margin-top: 2px;">${fullAddress}</div>
+          </div>
+        `;
+      }
       resultsContainer.innerHTML = html;
     } catch (e) {
       resultsContainer.innerHTML = "<div class='list-item'>検索エラーが発生しました。</div>";
     }
   }
-
+  
   // 画面の切り替え処理
   function openSettings() {
     document.getElementById("main-view").style.display = "none";
